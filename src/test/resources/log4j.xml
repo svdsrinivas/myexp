@@ -1,41 +1,443 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE log4j:configuration PUBLIC "-//APACHE//DTD LOG4J 1.2//EN" "log4j.dtd">
-<log4j:configuration xmlns:log4j="http://jakarta.apache.org/log4j/">
+<!DOCTYPE html>
+<html lang="en">
 
-	<!-- Appenders -->
-	<appender name="console" class="org.apache.log4j.ConsoleAppender">
-		<param name="Target" value="System.out" />
-		<layout class="org.apache.log4j.PatternLayout">
-			<param name="ConversionPattern" value="%-5p: %c - %m%n" />
-		</layout>
-	</appender>
-	
-	<!-- Application Loggers -->
-	<logger name="mytld.mycompany.myapp">
-		<level value="info" />
-	</logger>
-	
-	<!-- 3rdparty Loggers -->
-	<logger name="org.springframework.core">
-		<level value="info" />
-	</logger>	
-	
-	<logger name="org.springframework.beans">
-		<level value="info" />
-	</logger>
-	
-	<logger name="org.springframework.context">
-		<level value="info" />
-	</logger>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=<device-width>, initial-scale=1.0">
+  <title>Document</title>
+  <link rel="stylesheet" href="./index.css"> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.1.5/sockjs.min.js"></script>
+  <script src="./index.js"></script>
+</head>
 
-	<logger name="org.springframework.web">
-		<level value="debug" />
-	</logger>
+<body>
+  <div class="user-container">
+    <input id="userId" type="text" placeholder="User ID"/>
+    <button onclick="onConnect()">Connect</button>
+  </div>
+  <div class="chat-outer-container">
+    <button onclick="onDisconnect()">disconnect</button>
+    <div class="chat-container">
+      <div class="chat-inner-container">
+        <div class="current-chat-container">
+<!--        <div class="chat-bubble agent-chat-bubble">-->
+<!--          Lorem ipsum dolor sit amet.-->
+<!--        </div>-->
+<!--        <div class="chat-bubble client-chat-bubble" data-message-id="m_5d34113b-15c9-00da-e1c3-d5157893306b">-->
+<!--          <div class="chat-message">-->
+<!--            Lorem ipsum dolor sit amet.-->
+<!--          </div>-->
+<!--          <div class="chat-tick-container">-->
+<!--          <div class="chat-tick" style="display:block;"></div>-->
+<!--          </div>-->
+<!--        </div>-->
+        </div>
+        <div class="composing-container">
+          <div class="chat-bubble agent-chat-bubble composing"></div>
+        </div>
+      </div>
+    </div>
+    <div class="typing-bar">
+      <textarea id="chatTypeArea" onkeypress="onKeyPress(event)"></textarea>
+      <button class="send-button" onClick="onSend()">send</button>
+    </div>
+  </div>
+</body>
+</html>
+==========================================================
+	  
+	  var ws = null;
+var userTyping = false;
+var typingIndTimeout = null;
+var userId = "";
+window.webChatState = {};
 
-	<!-- Root Logger -->
-	<root>
-		<priority value="info" />
-		<appender-ref ref="console" />
-	</root>
-	
-</log4j:configuration>
+function addAgentMessageToDom(message) {
+  var agentMessage = '<div class="chat-bubble agent-chat-bubble">' +
+    message + '</div>'
+
+  document.querySelector(".composing").style.display = "none";
+  document.querySelector(".chat-inner-container .current-chat-container").innerHTML += agentMessage;
+  scrollToBottom();
+}
+
+function addClientMessageToDom(messageId, message) {
+  var clientMessage = '<div class="chat-bubble client-chat-bubble" data-message-id="'+messageId+'">' +
+          '<div class="chat-message">' + message + '</div>' +
+          '<div class="chat-tick-container">' +
+            '<div class="chat-tick"></div>' +
+          '</div>' +
+      '</div>';
+  document.querySelector(".chat-inner-container .current-chat-container").innerHTML += clientMessage;
+}
+
+function sendMessageFromClient() {
+
+}
+
+function receiveMessageFromAgent() {
+
+}
+
+function onDisconnect() {
+  ws.close();
+  var userId = document.querySelector("#userId").value;
+  document.querySelector("#userId").value = "";
+  document.querySelector(".chat-outer-container").style.display = "none";
+  document.querySelector(".user-container").style.display = "block";
+}
+
+function onConnect() {
+  var userIdEle = document.querySelector("#userId");
+  userId = userIdEle.value;
+  if (userId === '') {
+    userIdEle.style.border = 'solid 2px red';
+    setTimeout(function() {
+      userIdEle.style.border = 'solid 1px black';
+    }, 1000)
+    return;
+  }
+  invokeChatAPI(userId);
+}
+
+function displayChatContainer() {
+  document.querySelector(".chat-outer-container").style.display = "block";
+  document.querySelector(".user-container").style.display = "none";
+}
+
+function onSend() {
+  userTyping = false;
+  var textarea = document.querySelector("textarea");
+  var message = textarea.value;
+  var messageId = 'm_' + getGUID();
+  if (message === '')
+    return;
+  if(ws){
+    // ws.send(message);
+    ws.send(JSON.stringify(getUserMessage(messageId, message)));
+  }
+  if(message.indexOf('echo') !== 0) {
+    addClientMessageToDom(messageId, message);
+  }
+  textarea.value = '';
+  scrollToBottom();
+  textarea.focus();
+}
+
+function onKeyPress(event){
+  sendTypingIndicator();
+  if(event.which === 13 || event.keyCode === 13) {
+    event.preventDefault();
+    onSend();
+  }
+}
+
+function sendTypingIndicator() {
+  userTyping = true;
+  if (null === typingIndTimeout) {
+    typingIndTimeout = setTimeout(function () {
+      if(userTyping && ws) {
+        console.log("User Composing...");
+        ws.send(JSON.stringify(getUserActivity('composing')));
+      }
+      typingIndTimeout = null;
+    }, 3000);
+  }
+}
+
+function scrollToBottom() {
+  var div = document.querySelector(".chat-inner-container .current-chat-container");
+  div.scrollTop = div.scrollHeight - div.clientHeight;
+}
+
+var handler = function() {
+  if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+    // console.log("GetConversationID API response code is ", this.status);
+    // var conversationId = this.responseText;
+    // console.log("response text ----> ", this.responseText);
+    console.log("CHAT API response code is ", this.status);
+      var correlationId = getCookie('blueboxpublic') + '-' + new Date().getTime();
+      var deviceType = "Desktop";
+      var deviceOs = "Windows";
+      var browserName = "Chrome";
+      var browserVersion = "83.0.4103.116";
+      var webSocketURL = '../webchat?correlationId=' + correlationId;
+          // + '&deviceType=' + deviceType
+          // + '&deviceOs=' + deviceOs
+          // + '&browserName=' + browserName
+          // + '&browserVersion=' + browserVersion;
+      ws = new SockJS(webSocketURL);
+      ws.onopen = function () {
+        console.log('Successfully connected to webchat websocket');
+        console.log('Connected to webchat websocket');
+        var message = getConversationIdMessage();
+        console.log("Data sent to websocket: ", message);
+        ws.send(JSON.stringify(message));
+        // addAgentMessageToDom("Hello " + userId);
+        // displayChatContainer();
+      }
+
+      ws.onmessage = function (data) {
+        if (data.data && data.data.indexOf("{") == 0)
+          console.log('Data received from websocket: ', JSON.parse(data.data))
+          processMessageData(JSON.parse(data.data));
+      };
+
+      ws.onclose = function () {
+        console.log('WebChat webSocket disconnected.');
+        ws = null;
+      };
+  }
+}
+
+function getConversationIdMessage() {
+  var deviceType = "Desktop";
+  var deviceOs = "Windows";
+  var browserName = "Chrome";
+  var browserVersion = "83.0.4103.116";
+  return {
+    correlationId: getCookie('blueboxpublic') + '-' + new Date().getTime(),
+    action: "GET_CONVERSATION_ID",
+    device: {
+      deviceType,
+      deviceOs,
+      browserName,
+      browserVersion,
+    }
+  };
+}
+
+function invokeChatAPI(userId) {
+  const invocation = new XMLHttpRequest();
+  const url = '../api/chat/' + userId;
+  console.log("Invoking mock api to set httponly cookies.")
+  if (invocation) {
+    invocation.open('GET', url, true);
+    invocation.withCredentials = true;
+    invocation.onreadystatechange = handler;
+    // invocation.onreadystatechange = function() {
+    //   if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+    //     console.log("Mocked all required cookies, ready to go.");
+    //     invokeGetConversationId();
+    //   } else {
+    //     console.error("Failed to mock required cookies.");
+    //   }
+    // };
+    invocation.send();
+  }
+}
+
+// function invokeGetConversationId() {
+//   const invocation = new XMLHttpRequest();
+//   const url = '../getconversationid';
+//   console.log("Invoking GetConversationID API")
+//   if (invocation) {
+//     invocation.open('GET', url, true);
+//     invocation.withCredentials = true;
+//     invocation.onreadystatechange = handler;
+//     invocation.send();
+//   }
+// }
+
+function processMessageData(data) {
+  if(null !== data) {
+    var messaegData = data.data;
+    if(data.action === "GET_CONVERSATION_ID") {
+      webChatState.conversationId = data.conversationId;
+      console.log('Conversation Id received : ', data.conversationId);
+      addAgentMessageToDom("Hello " + userId);
+      displayChatContainer();
+    } else if(data.action === "MESSAGE_READ") {
+      if(messaegData.messageRead) {
+        console.log('CM message successfully sent confirmation received.');
+        renderMessageReadConfirmation(messaegData.messageId);
+      }
+    } else if(data.action === "AGENT_MESSAGE") {
+      console.log('Received message from agent: ', messaegData.content);
+      renderAgentMessage(messaegData)
+    } else if(data.action === "CCP_ACTIVITY") {
+      console.log('Received message from agent: ', messaegData.activity);
+      if(messaegData.activity === 'composing') {
+        enableAgentComposing();
+      }
+    }
+  }
+}
+
+function enableAgentComposing() {
+  console.log("Agent composing...")
+  document.querySelector(".composing").style.display = "block";
+  scrollToBottom();
+  setTimeout(function () {
+    document.querySelector(".composing").style.display = "none";
+  }, 3000)
+}
+
+function renderAgentMessage(data) {
+  console.log("received agent message - ", data);
+  if(data != null) {
+    var message = data.content;
+    addAgentMessageToDom(message);
+  }
+}
+
+function getUserMessage(messageId, message) {
+  return {
+    action: 'SEND_MESSAGE',
+    correlationId: getCookie('blueboxpublic') + '-' + new Date().getTime(),
+    data: {
+      messageId,
+      content: message,
+    }
+  };
+}
+
+function getUserActivity(activity) {
+  return {
+    action: 'USER_ACTIVITY',
+    correlationId: getCookie('blueboxpublic') + '-' + new Date().getTime(),
+    conversationId: webChatState.conversationId,
+    data: {
+      activity: activity,
+    }
+  }
+}
+
+function renderMessageReadConfirmation(messageId) {
+  document.querySelector('[data-message-id="'+messageId+'"] .chat-tick ').style.display = "block";
+}
+
+function getGUID() {
+  var guid = '';
+  for (let i = 0; i < 8; i += 1) {
+    guid += getHexDigits() + ((i > 0 && i < 5) ? '-' : '');
+  }
+  return guid;
+}
+
+function getHexDigits() {
+  return Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
+}
+
+function getCookie(cname) {
+  var name = cname + "=";
+  var decodedCookie = decodeURIComponent(document.cookie);
+  var ca = decodedCookie.split(';');
+  for(var i = 0; i <ca.length; i++) {
+    var c = ca[i];
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) == 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return "";
+}
+	  
+=================================
+	  .chat-outer-container {
+    margin-top: 10px;
+    display: none;
+}
+.chat-container {
+    height: 450px;
+    width: 400px;
+    border: solid 1px;
+    margin-top: 10px;
+}
+.chat-inner-container {
+    overflow-y: scroll;
+    height: 450px;
+    width: 400px;
+}
+
+.chat-bubble {
+    max-width: 410px;
+    padding: 15px;
+    margin: 10px;
+    border-radius: 7px;
+    clear: both;
+}
+
+.agent-chat-bubble {
+    background-color: white;
+    border: solid 1px;
+    float: left;
+}
+
+.composing {
+    height: 18px;
+    width: 49px;
+    background: url(./img/simple_loading.gif);
+    background-repeat: no-repeat;
+    background-size: 70%;
+    background-position-x: 10px;
+}
+
+.client-chat-bubble {
+    background-color: #004890;
+    border: solid 1px;
+    float: right;
+    padding: 15px 8px 0px 15px;
+    color: white;
+}
+
+.chat-message {
+    padding-right: 7px;
+}
+
+.chat-tick-container {
+    height: 16px;
+}
+
+.typing-bar {
+    height: 25px;
+    width: 400px;
+}
+
+textarea {
+    margin-top: 5px;
+    resize: none;
+    width: 330px;
+    font-family: inherit;
+    font-size: medium;
+}
+textarea:focus {
+    outline-offset: 0px;
+    outline: none;
+}
+
+button {
+    margin: 5px 0px 0px 5px;
+    padding: 6px 7px;
+    font-size: large;
+    font-weight: bold;
+}
+
+.typing-bar button {
+    float: right;
+    padding: 9px 5px
+}
+
+input {
+    margin: 5px 0px 0px 5px;
+    padding: 6px 5px;
+    font-size: large;
+    font-weight: bold;
+    border: solid 1px black;
+}
+
+.chat-tick::after {
+    content: "\2713";
+    color: green;
+    font-size: 10px;
+    font-weight: bold;
+    float: right;
+}
+.chat-tick {
+    display: none;
+}
+	  
+===========================
+	  
